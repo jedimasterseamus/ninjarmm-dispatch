@@ -1,49 +1,49 @@
 # ninjarmm-dispatch
 
-Run whatever NinjaOne Remote player version each of your NinjaOne tenants wants, on Linux, automatically.
-
-## The problem
-
-If you work in more than one NinjaOne environment from a Linux machine: one instance gets updated to a new NinjaRemote player version, the other hasn't yet, and only one version of `ninjarmm-ncplayer` can be installed via dpkg at a time. The browser fires a `ninjarmm://` URL, the installed player is the wrong version for that tenant, and you're stuck until the instances line up again.
+I work in two different NinjaOne environments from a Linux laptop. One of them updated NinjaRemote to version 15, the other one was still on 14, and since only one `ninjarmm-ncplayer` deb can be installed at a time I could only connect to one of them. Not a great spot to be in when you have work to do in both. This fixes that, and it keeps fixing it every time either environment updates.
 
 ## How it works
 
-The `ninjarmm://` URL the console hands to the browser already contains the exact player version it expects (`pv=15.37.8880`) and the URL it fetched the player from (`baseUrl=https://resources.ninjarmm.com/development/ninjacontrol/15.37.8880/`). The deb lives at that path with a predictable name, and it's a public download — no tenant token needed.
+When you hit Remote in the console, the browser fires a `ninjarmm://` URL at whatever is registered to handle it. That URL already has everything in it: `pv=15.37.8880` is the exact player version the console wants, and `baseUrl=https://resources.ninjarmm.com/development/ninjacontrol/15.37.8880/` is where it got the player from. The deb sits at that path under a predictable name and downloads without any tenant token.
 
-So instead of registering `ncplayer` directly as the `ninjarmm://` handler, this registers a small script that:
+So instead of pointing the handler at `ncplayer` directly, this installs a small script as the handler that:
 
-1. reads `pv=` out of the URL,
-2. if `~/ninjaremote/<that version>/` doesn't exist, downloads the matching deb from `resources.ninjarmm.com` and unpacks it there (no root, no dpkg install),
-3. launches that version's `ncplayer` with the URL.
+1. pulls the version out of the URL
+2. if it hasn't seen that version before, downloads the deb and unpacks it into `~/ninjaremote/<version>/` (no root, no dpkg)
+3. runs that version's `ncplayer` with the URL
 
-First connect on a new version costs a few seconds of download. After that it's instant. Each tenant can update whenever it likes and you never touch anything. The deb is fully self-contained: one binary, a desktop file, and a postinst that only runs `xdg-mime default` — nothing else to replicate.
+The first connect on a new version takes a few extra seconds for the download. After that it's instant. Either environment can update whenever it wants and you don't have to touch anything. The deb is one binary, a desktop file, and a postinst that only runs `xdg-mime default`, so there's nothing else worth replicating.
 
 ## Install
 
-Run as your normal user, no sudo:
+Run as yourself, no sudo:
 
 ```
 curl -fsSLO https://raw.githubusercontent.com/jedimasterseamus/ninjarmm-dispatch/main/install.sh
 bash install.sh
 ```
 
-Or clone the repo and run `bash install.sh`.
+Or clone this and run `bash install.sh`.
 
-Then click Remote on a device in each console. Check `~/ninjaremote/` — you'll see one directory per version plus `dispatch.log`. Old versions can be deleted whenever.
+Then hit Remote on a device in each console. `~/ninjaremote/` will end up with one folder per version plus a `dispatch.log`. Delete old versions whenever you want.
 
-## What's tested / not tested
+## What I've tested
 
-- Tested: Ubuntu, x86_64, `dpkg-deb` unpack, two tenants on 14.35.8480 and 15.37.8880, Firefox and Chromium-family browsers.
-- Untested: the `bsdtar` path for Fedora/Arch/etc., and `aarch64` (NinjaOne publishes aarch64 RPMs so the arch mapping is a guess at the deb name). Reports welcome via Issues.
-- This relies on NinjaOne keeping the `pv=` parameter and the `ninjarmm-ncplayer-<ver>_<arch>.deb` filename. If they change either, the script logs the failed URL and falls back to `/opt/NinjaRemote/ncplayer/ncplayer` if you have one installed. Unofficial, obviously.
-- The player appears to want a world-writable `/opt/NinjaRemote/logs`. On a box that also runs the NinjaOne agent it's already there. Without the agent, the install script prints the one-liner to create it if you need it.
-- No signature verification on the download — but the browser-based install doesn't verify anything either.
+Ubuntu on x86_64, unpacking with `dpkg-deb`, two tenants on 14.35.8480 and 15.37.8880, Firefox and Chromium.
 
-## Troubleshooting
+What I haven't: the `bsdtar` path for Fedora/Arch/whatever else, and aarch64. NinjaOne publishes aarch64 RPMs so I'm guessing at the deb name for that. If you try either one and it works or doesn't, open an issue.
 
-- **Sessions still open the old player:** your browser cached the handler. Firefox: `about:preferences` → Applications → `ninjarmm` → set to "Always ask", or delete the entry in `~/.mozilla/firefox/<profile>/handlers.json`. Chrome/Chromium: `chrome://settings/handlers`.
-- **`dispatch.log` shows the URL but nothing launches:** run the `exec` line by hand with that URL to see stderr, and check `/opt/NinjaRemote/logs/` for the player's own log.
-- **A later `sudo dpkg -i` of a NinjaRemote deb reclaims the handler** (its postinst runs `xdg-mime default`). Re-run `xdg-mime default ninjarmm-dispatch.desktop x-scheme-handler/ninjarmm` to put the dispatcher back. You shouldn't need to install the deb anymore, though.
+A few other things worth knowing:
+
+- This depends on NinjaOne keeping the `pv=` parameter and the `ninjarmm-ncplayer-<version>_<arch>.deb` filename. If they change either one, the script logs the URL it tried and falls back to `/opt/NinjaRemote/ncplayer/ncplayer` if you have that installed. It's not official and NinjaOne could break it whenever they want.
+- The player wants to write to `/opt/NinjaRemote/logs`. If the NinjaOne agent is on the machine that folder's already there. If not, the installer prints the one-liner to create it.
+- Nothing verifies the download. The browser install doesn't either.
+
+## If it doesn't work
+
+- Still launching the old player: the browser cached the handler. Firefox: about:preferences, Applications, find `ninjarmm` and set it to Always ask (or delete it out of `handlers.json` in your profile folder). Chrome: `chrome://settings/handlers`.
+- The log shows the URL but nothing opens: run the last `exec` line from the script by hand with that URL and see what it complains about. The player also writes its own log in `/opt/NinjaRemote/logs/`.
+- If you `sudo dpkg -i` a NinjaRemote deb later, its postinst takes the handler back. `xdg-mime default ninjarmm-dispatch.desktop x-scheme-handler/ninjarmm` gives it back to the script. You shouldn't need the deb anymore though.
 
 ## Uninstall
 
@@ -53,6 +53,4 @@ rm -rf ~/ninjaremote
 xdg-mime default ninjarmm-ncplayer.desktop x-scheme-handler/ninjarmm
 ```
 
-## License
-
-MIT. Not affiliated with or endorsed by NinjaOne.
+MIT licensed. Not affiliated with NinjaOne.
